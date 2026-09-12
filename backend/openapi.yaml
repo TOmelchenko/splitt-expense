@@ -1,0 +1,329 @@
+openapi: 3.0.3
+info:
+  title: Expense Splitter API
+  version: "0.1.0"
+  description: |
+    API contract for the Python backend described in `docs/spec.md` and
+    `docs/user-stories.md`. It is a drop-in replacement for the in-browser
+    mock at `frontend/src/services/mock-service.ts`: the frontend's
+    `ExpenseSplitterService` interface (`frontend/src/services/types.ts`) has
+    exactly one HTTP call per operation below, and the field names here match
+    that interface exactly so no UI code has to change when this API goes
+    live.
+
+    Business rules encoded by this contract (see docs/spec.md for the full
+    spec):
+      - Currency is EUR only; amounts are always represented in integer cents.
+      - A group holds at most 10 participants.
+      - Expenses are split equally using the largest-remainder method in
+        integer cents, stable by participant list order (the participants
+        earliest in the list absorb any leftover cents).
+      - Expenses are immutable: there is no edit or delete endpoint, by design.
+      - There are no accounts and no creator-identity checks anywhere:
+        whoever holds the group's URL can add participants and expenses.
+      - `status` is a computed, live value (not stored): "empty" with zero
+        expenses, "settled" when every participant's balance is exactly
+        €0.00, otherwise "active". There is no archive/close endpoint.
+
+servers:
+  - url: /api
+    description: Same-origin, behind the frontend's dev server / reverse proxy.
+
+tags:
+  - name: groups
+    description: Group creation, lookup, participants, and expenses.
+
+paths:
+  /groups:
+    post:
+      operationId: createGroup
+      tags: [groups]
+      summary: Create a group
+      description: >-
+        Creates a group with the creator as its first participant, optionally
+        adding more participant names up to the 10-person cap.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateGroupInput"
+      responses:
+        "201":
+          description: Group created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupView"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+
+  /groups/{groupId}:
+    get:
+      operationId: getGroup
+      tags: [groups]
+      summary: Get a group's current view
+      description: >-
+        Returns the group with its participants, full expense history, total,
+        per-participant balances, and computed status.
+      parameters:
+        - $ref: "#/components/parameters/GroupId"
+      responses:
+        "200":
+          description: The group's current view.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupView"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+
+  /groups/{groupId}/participants:
+    post:
+      operationId: addParticipant
+      tags: [groups]
+      summary: Add a participant
+      description: >-
+        Adds a new participant name to the group. Names must be unique
+        within the group (case-insensitive) and the group must not already
+        be at the 10-participant cap.
+      parameters:
+        - $ref: "#/components/parameters/GroupId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddParticipantInput"
+      responses:
+        "200":
+          description: Updated group view, including the new participant.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupView"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+
+  /groups/{groupId}/expenses:
+    post:
+      operationId: addExpense
+      tags: [groups]
+      summary: Add an expense
+      description: >-
+        Records an expense and splits it equally among every current group
+        member using the largest-remainder method. Balances and status are
+        recalculated immediately and reflected in the response.
+      parameters:
+        - $ref: "#/components/parameters/GroupId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddExpenseInput"
+      responses:
+        "200":
+          description: Updated group view, including the new expense.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupView"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+
+components:
+  parameters:
+    GroupId:
+      name: groupId
+      in: path
+      required: true
+      description: The group's opaque id, as shared via its invite link.
+      schema:
+        type: string
+
+  responses:
+    ValidationError:
+      description: >-
+        The request violates a business rule (e.g. duplicate participant
+        name, participant cap reached, invalid amount, missing required
+        field). Safe to show to the user as-is.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFoundError:
+      description: No group exists for this id (e.g. a stale or wrong invite link).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    Error:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+          description: A user-facing error message.
+          example: "This group doesn't exist. Check the invite link."
+
+    Participant:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+
+    Expense:
+      type: object
+      required: [id, date, description, amountCents, payerId, createdAt]
+      properties:
+        id:
+          type: string
+        date:
+          type: string
+          format: date
+          description: User-entered expense date, YYYY-MM-DD. Never defaulted.
+        description:
+          type: string
+        amountCents:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Amount in EUR cents. Always > 0.
+        payerId:
+          type: string
+          description: Id of the participant who paid (not necessarily the submitter).
+        createdAt:
+          type: integer
+          format: int64
+          description: Server-assigned creation timestamp, epoch milliseconds.
+
+    Group:
+      type: object
+      required: [id, name, creatorName, participants, expenses]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+          nullable: true
+          description: Optional group name; null if not given at creation.
+        creatorName:
+          type: string
+          description: >-
+            The name the creator entered at group creation. Informational
+            only — not used for any permission check.
+        participants:
+          type: array
+          items:
+            $ref: "#/components/schemas/Participant"
+          maxItems: 10
+        expenses:
+          type: array
+          items:
+            $ref: "#/components/schemas/Expense"
+          description: Full, immutable expense history in the group.
+
+    Balance:
+      type: object
+      required: [participantId, name, cents]
+      properties:
+        participantId:
+          type: string
+        name:
+          type: string
+        cents:
+          type: integer
+          format: int64
+          description: >-
+            Net balance in EUR cents. Positive means the participant should
+            receive money; negative means they owe money; zero means settled.
+
+    GroupStatus:
+      type: string
+      enum: [empty, settled, active]
+      description: >-
+        "empty" = no expenses yet. "settled" = every participant's balance is
+        exactly €0.00. "active" = otherwise. Computed live, never stored.
+
+    GroupView:
+      type: object
+      required: [group, totalCents, balances, status]
+      properties:
+        group:
+          $ref: "#/components/schemas/Group"
+        totalCents:
+          type: integer
+          format: int64
+          description: Sum of all expense amounts in the group, in EUR cents.
+        balances:
+          type: array
+          items:
+            $ref: "#/components/schemas/Balance"
+        status:
+          $ref: "#/components/schemas/GroupStatus"
+
+    CreateGroupInput:
+      type: object
+      required: [creatorName]
+      properties:
+        creatorName:
+          type: string
+          minLength: 1
+          description: Required. Becomes the first participant's name.
+        groupName:
+          type: string
+          nullable: true
+          description: Optional group display name.
+        participantNames:
+          type: array
+          items:
+            type: string
+          maxItems: 9
+          description: >-
+            Optional additional participant names (creator is added
+            automatically). Blank entries are ignored; duplicates
+            (case-insensitive) and exceeding the 10-person cap are rejected.
+
+    AddParticipantInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: >-
+            Must be non-empty, unique within the group (case-insensitive),
+            and the group must have fewer than 10 participants.
+
+    AddExpenseInput:
+      type: object
+      required: [date, description, amount, payerId]
+      properties:
+        date:
+          type: string
+          format: date
+          description: Required. No default is applied — must be explicit.
+        description:
+          type: string
+          minLength: 1
+        amount:
+          type: string
+          pattern: '^\d+([.,]\d{1,2})?$'
+          example: "25.50"
+          description: >-
+            Raw decimal amount in EUR as entered by the user (dot or comma
+            decimal separator accepted). Server parses to integer cents,
+            rejects at most 2 decimal places, and rejects amounts <= €0.00.
+        payerId:
+          type: string
+          description: Must be the id of an existing participant in this group.

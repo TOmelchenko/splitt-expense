@@ -18,12 +18,27 @@ export type Expense = {
   createdAt: number;
 };
 
+/**
+ * A direct repayment between two participants (e.g. settling up in cash or
+ * by bank transfer, logged so balances reflect it). Unlike an Expense, a
+ * Payment is not split across the group and never counts toward
+ * `totalCents` — it only moves balance from `fromId` to `toId`.
+ */
+export type Payment = {
+  id: string;
+  fromId: string;
+  toId: string;
+  amountCents: number;
+  createdAt: number;
+};
+
 export type Group = {
   id: string;
   name: string | null;
   creatorName: string;
   participants: Participant[];
   expenses: Expense[];
+  payments: Payment[];
 };
 
 export type Balance = { participantId: string; name: string; cents: number };
@@ -52,6 +67,13 @@ export type AddExpenseInput = {
   payerId: string;
 };
 
+export type AddPaymentInput = {
+  fromId: string;
+  toId: string;
+  /** Raw user input, e.g. "25.50". Validated by the service. */
+  amount: string;
+};
+
 /** Errors safe to show to the user (validation / not found). */
 export class ServiceError extends Error {}
 
@@ -62,4 +84,5 @@ export interface ExpenseSplitterService {
   getGroup(groupId: string): Promise<GroupView>;
   addParticipant(groupId: string, name: string): Promise<GroupView>;
   addExpense(groupId: string, input: AddExpenseInput): Promise<GroupView>;
+  addPayment(groupId: string, input: AddPaymentInput): Promise<GroupView>;
 }

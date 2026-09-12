@@ -11,6 +11,7 @@ import {
   MAX_PARTICIPANTS,
   ServiceError,
   type AddExpenseInput,
+  type AddPaymentInput,
   type CreateGroupInput,
   type ExpenseSplitterService,
   type Group,
@@ -49,6 +50,13 @@ export function computeGroupView(group: Group): GroupView {
     totals.set(expense.payerId, (totals.get(expense.payerId) ?? 0) + expense.amountCents);
   }
 
+  // A payment is a direct transfer, not a shared cost: it moves balance from
+  // the payer to the receiver but never touches totalCents.
+  for (const payment of group.payments) {
+    totals.set(payment.fromId, (totals.get(payment.fromId) ?? 0) + payment.amountCents);
+    totals.set(payment.toId, (totals.get(payment.toId) ?? 0) - payment.amountCents);
+  }
+
   const balances = group.participants.map((p) => ({
     participantId: p.id,
     name: p.name,
@@ -60,7 +68,7 @@ export function computeGroupView(group: Group): GroupView {
     totalCents: group.expenses.reduce((sum, e) => sum + e.amountCents, 0),
     balances,
     status:
-      group.expenses.length === 0
+      group.expenses.length === 0 && group.payments.length === 0
         ? "empty"
         : balances.every((b) => b.cents === 0)
           ? "settled"
@@ -87,6 +95,8 @@ export function createMockService(options: {
   const requireGroup = (db: Db, groupId: string): Group => {
     const group = db[groupId];
     if (!group) throw new ServiceError("This group doesn't exist. Check the invite link.");
+    // Groups persisted before payments existed won't have this field yet.
+    group.payments ??= [];
     return group;
   };
 
@@ -113,6 +123,7 @@ export function createMockService(options: {
         creatorName,
         participants: [{ id: newId("p"), name: creatorName }],
         expenses: [],
+        payments: [],
       };
 
       for (const raw of input.participantNames ?? []) {
@@ -161,6 +172,33 @@ export function createMockService(options: {
         description,
         amountCents,
         payerId: input.payerId,
+        createdAt: Date.now(),
+      });
+      writeDb(db);
+      return computeGroupView(group);
+    },
+
+    async addPayment(groupId: string, input: AddPaymentInput) {
+      await wait();
+      const db = readDb();
+      const group = requireGroup(db, groupId);
+
+      if (!group.participants.some((p) => p.id === input.fromId)) {
+        throw new ServiceError("Please choose who is paying.");
+      }
+      if (!group.participants.some((p) => p.id === input.toId)) {
+        throw new ServiceError("Please choose who is receiving the payment.");
+      }
+      if (input.fromId === input.toId) {
+        throw new ServiceError("A payment needs two different people.");
+      }
+      const amountCents = parseAmountToCents(input.amount);
+
+      group.payments.push({
+        id: newId("pay"),
+        fromId: input.fromId,
+        toId: input.toId,
+        amountCents,
         createdAt: Date.now(),
       });
       writeDb(db);

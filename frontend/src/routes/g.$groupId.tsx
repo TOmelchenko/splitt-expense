@@ -138,7 +138,9 @@ function GroupPage() {
 
         <div className="space-y-5 lg:col-span-5">
           <AddExpenseForm view={view} defaultPayerId={me} onAdded={setView} />
+          <PaymentForm view={view} defaultFromId={me} onAdded={setView} />
           <History view={view} />
+          <PaymentsList view={view} />
         </div>
       </div>
     </main>
@@ -408,6 +410,155 @@ function AddExpenseForm({
           can be edited or removed.
         </p>
       </form>
+    </section>
+  );
+}
+
+function PaymentForm({
+  view,
+  defaultFromId,
+  onAdded,
+}: {
+  view: GroupView;
+  defaultFromId: string;
+  onAdded: (view: GroupView) => void;
+}) {
+  const others = view.group.participants.filter((p) => p.id !== defaultFromId);
+  const [fromId, setFromId] = useState(defaultFromId);
+  const [toId, setToId] = useState(others[0]?.id ?? "");
+  const [amount, setAmount] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const canPay = view.group.participants.length >= 2;
+
+  const add = useMutation({
+    mutationFn: () => expenseService.addPayment(view.group.id, { fromId, toId, amount }),
+    onSuccess: (next) => {
+      onAdded(next);
+      setAmount("");
+      setError(null);
+    },
+    onError: (e: Error) => setError(e.message),
+  });
+
+  return (
+    <section className="panel">
+      <div className="flex items-baseline justify-between">
+        <h2 className="text-sm font-semibold">Record a payment</h2>
+        <span className="font-mono text-[11px] text-muted-foreground">EUR</span>
+      </div>
+      {!canPay ? (
+        <p className="mt-4 text-sm text-muted-foreground">
+          Add another participant first to record a payment between two people.
+        </p>
+      ) : (
+        <form
+          onSubmit={(e: FormEvent) => {
+            e.preventDefault();
+            setError(null);
+            if (fromId === toId) {
+              setError("A payment needs two different people.");
+              return;
+            }
+            add.mutate();
+          }}
+          className="mt-4 space-y-3"
+        >
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label-xs" htmlFor="payment-from">
+                From
+              </label>
+              <select
+                id="payment-from"
+                value={fromId}
+                onChange={(e) => setFromId(e.target.value)}
+                className="field focus:field-focus"
+              >
+                {view.group.participants.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label-xs" htmlFor="payment-to">
+                To
+              </label>
+              <select
+                id="payment-to"
+                value={toId}
+                onChange={(e) => setToId(e.target.value)}
+                className="field focus:field-focus"
+              >
+                {view.group.participants.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="label-xs" htmlFor="payment-amount">
+              Amount
+            </label>
+            <input
+              id="payment-amount"
+              inputMode="decimal"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="25.50"
+              className="field focus:field-focus font-mono tabular-nums"
+            />
+          </div>
+
+          {error && (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            disabled={add.isPending}
+            className="w-full rounded-lg border border-border px-4 py-2.5 text-sm font-semibold transition-colors hover:bg-secondary disabled:opacity-60"
+          >
+            {add.isPending ? "Saving…" : "Record payment"}
+          </button>
+          <p className="text-xs text-muted-foreground">
+            Moves balance from the payer to the receiver. Doesn't count toward total spent.
+          </p>
+        </form>
+      )}
+    </section>
+  );
+}
+
+function PaymentsList({ view }: { view: GroupView }) {
+  const rows = [...view.group.payments].sort((a, b) => b.createdAt - a.createdAt);
+  if (rows.length === 0) return null;
+
+  const nameOf = (id: string) =>
+    view.group.participants.find((p) => p.id === id)?.name ?? "Unknown";
+
+  return (
+    <section className="panel">
+      <h2 className="text-sm font-semibold">Payments</h2>
+      <ul className="mt-3 divide-y divide-border">
+        {rows.map((p) => (
+          <li key={p.id} className="flex items-center gap-3 py-2.5">
+            <span className="w-20 shrink-0 font-mono text-[11px] text-muted-foreground">
+              {formatDate(new Date(p.createdAt).toISOString().slice(0, 10))}
+            </span>
+            <span className="flex-1 truncate text-sm">
+              {nameOf(p.fromId)} → {nameOf(p.toId)}
+            </span>
+            <span className="font-mono text-sm tabular-nums">{formatEur(p.amountCents)}</span>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }

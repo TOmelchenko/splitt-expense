@@ -48,13 +48,20 @@ see `frontend/src/services/money.ts` for the reference implementation:
   stable by participant list order — see `splitEqually` in
   `frontend/src/services/money.ts` for the exact algorithm.
 - Expenses are **immutable**: no edit or delete endpoint should ever be built.
+- A **Payment** (`fromId`/`toId`/`amountCents`) is a direct transfer between
+  two participants — not split, immutable like an expense, and **excluded
+  from `totalCents`**. It only moves balance from `fromId` to `toId`. Don't
+  confuse it with an Expense: recording a repayment as an expense was the
+  original bug this feature exists to fix (it split the repayment across the
+  whole group and inflated the total).
 - **No accounts, no creator-identity verification, anywhere.** Whoever holds
-  a group's URL can add participants and expenses. Don't add auth/permission
-  checks "just in case" — this was an explicit, deliberate decision.
+  a group's URL can add participants, expenses, and payments. Don't add
+  auth/permission checks "just in case" — this was an explicit, deliberate
+  decision.
 - There is no manual archive/close action. `status` (`empty` / `settled` /
-  `active`) is a **computed, live value** based on current balances, not
-  something stored or toggled — see `computeGroupView` in
-  `frontend/src/services/mock-service.ts`.
+  `active`) is a **computed, live value** based on current balances (from
+  both expenses and payments), not something stored or toggled — see
+  `computeGroupView` in `frontend/src/services/mock-service.ts`.
 
 ## Working conventions
 

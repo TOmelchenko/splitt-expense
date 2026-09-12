@@ -160,28 +160,59 @@ The MVP does **not** show detailed settlement instructions such as:
 
 > Bob pays Alice €10.
 
+It also does not *automatically compute* an optimal settlement plan. What it
+does support is participants manually recording that a repayment actually
+happened — see §7, Payments.
+
 ---
 
-## 7. Group Total
+## 7. Payments (Settling Up)
+
+Besides expenses, a participant can record that they paid another
+participant back directly (e.g. after a bank transfer or handing over cash).
+
+* A payment has a **from** participant, a **to** participant, and an
+  **amount** in EUR.
+* The amount follows the same rules as expense amounts: EUR, greater than
+  €0.00, at most 2 decimal places.
+* `from` and `to` must be two different, existing participants in the group.
+* A payment is **not split** among the group and does **not** count toward
+  the group's total spent — it only moves balance from `from` to `to`.
+* Payments are immutable, like expenses: they cannot be edited or deleted
+  once recorded.
+* Payments are shown in their own list, separate from the expense history,
+  and are included in the balance and "Settled" status calculation exactly
+  like expenses are.
+
+Example: after a €30 dinner split 3 ways, Bob owes Alice €10. Bob transfers
+Alice €10 outside the app, then records a payment: from Bob, to Alice, €10.
+Bob's balance moves from −€10 to €0.00; Alice's moves from +€20 to +€10.
+Total spent stays at €30 — the payment is a settlement, not a shared cost.
+
+---
+
+## 8. Group Total
 
 The group page displays:
 
-* Total expenses
+* Total expenses (payments are excluded from this total — see §7)
 * Current balance of each participant
 * Expense history
+* Payments, in their own separate list
 
-Balances are recalculated **immediately** whenever a new expense is added.
+Balances are recalculated **immediately** whenever a new expense or payment
+is added.
 
 ---
 
-## 8. Group Lifecycle
+## 9. Group Lifecycle
 
 ### Active group
 
 Members can:
 
-* view expenses
-* add expenses
+* view expenses and payments
+* add expenses and payments
 * view balances
 
 ### Settled status (automatic)
@@ -190,16 +221,18 @@ Members can:
   anywhere in the app.
 * After every balance recalculation, if every participant's net balance is
   exactly €0.00, the group is displayed with a "Settled" status.
-* This is a live computed label, not a one-way action: if a later expense
-  unbalances the group again, the "Settled" label clears automatically.
-* Adding expenses is never blocked — a "Settled" group can still receive new
-  expenses at any time.
-* A brand-new group with zero expenses is shown as "No expenses yet" rather
-  than "Settled," to avoid a misleading label before any activity.
+* This is a live computed label, not a one-way action: if a later expense or
+  payment unbalances the group again, the "Settled" label clears
+  automatically.
+* Adding expenses or payments is never blocked — a "Settled" group can still
+  receive new ones at any time.
+* A brand-new group with zero expenses and zero payments is shown as "No
+  expenses yet" rather than "Settled," to avoid a misleading label before any
+  activity.
 
 ---
 
-## 9. Explicitly Out of Scope for MVP
+## 10. Explicitly Out of Scope for MVP
 
 To keep the project small, the MVP does **not** include:
 
@@ -210,14 +243,17 @@ To keep the project small, the MVP does **not** include:
 * Unequal/custom splitting
 * Expense editing
 * Expense deletion
+* Payment editing or deletion (payments are immutable, same as expenses)
 * Leaving a group
 * Expense categories
-* Settlement/payment instructions
+* Automatically suggested settlement plans (e.g. computing the minimal
+  number of transactions to settle up) — manually recording an actual
+  repayment between two participants is in scope, see §7
 * Notifications/reminders
 * Advanced filtering
 * Advanced sorting
 * Manual archive/close action by the creator (replaced by automatic "Settled"
-  status — see §8)
+  status — see §9)
 * Creator approval for joining
 * Multiple access/management links
 * More than 10 participants
@@ -225,7 +261,7 @@ To keep the project small, the MVP does **not** include:
 
 ---
 
-## 10. Core User Flow
+## 11. Core User Flow
 
 ### Creator
 
@@ -275,7 +311,23 @@ Split equally among all members
 Recalculate balances immediately
 ```
 
-## 11. MVP Success Criteria
+### Recording a payment
+
+```text
+Select who paid (from)
+    ↓
+Select who received it (to)
+    ↓
+Enter amount
+    ↓
+Save payment
+    ↓
+Move balance from "from" to "to" (total spent unchanged)
+    ↓
+Recalculate balances immediately
+```
+
+## 12. MVP Success Criteria
 
 The MVP is complete when a user can:
 
@@ -288,5 +340,7 @@ The MVP is complete when a user can:
 7. See the expense history.
 8. See the total expenses.
 9. See each participant's net balance.
-10. See the group automatically show a "Settled" status once every
+10. Record that one participant paid another back, without it inflating the
+    total expenses.
+11. See the group automatically show a "Settled" status once every
     participant's balance reaches €0.00.

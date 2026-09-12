@@ -81,9 +81,85 @@ describe("expenses (US-3.1)", () => {
     expect(Object.keys(service).sort()).toEqual([
       "addExpense",
       "addParticipant",
+      "addPayment",
       "createGroup",
       "getGroup",
     ]);
+  });
+});
+
+describe("payments (settling up)", () => {
+  it("moves balance from payer to receiver without touching totalCents", async () => {
+    const { group } = await newGroup();
+    const [mara, jonas, priya] = group.participants;
+    await service.addExpense(group.id, expense(mara!.id, "60"));
+
+    const view = await service.addPayment(group.id, {
+      fromId: jonas!.id,
+      toId: mara!.id,
+      amount: "20",
+    });
+
+    expect(view.totalCents).toBe(6000); // unchanged by the payment
+    expect(view.balances.find((b) => b.participantId === jonas!.id)?.cents).toBe(0);
+    expect(view.balances.find((b) => b.participantId === mara!.id)?.cents).toBe(2000);
+    expect(view.balances.find((b) => b.participantId === priya!.id)?.cents).toBe(-2000);
+  });
+
+  it("can bring balances to exactly settled", async () => {
+    const { group } = await newGroup(["Jonas"]);
+    const [mara, jonas] = group.participants;
+    await service.addExpense(group.id, expense(mara!.id, "20"));
+
+    const view = await service.addPayment(group.id, {
+      fromId: jonas!.id,
+      toId: mara!.id,
+      amount: "10",
+    });
+
+    expect(view.status).toBe("settled");
+    expect(view.balances.every((b) => b.cents === 0)).toBe(true);
+  });
+
+  it("rejects an unknown participant on either side", async () => {
+    const { group } = await newGroup();
+    const mara = group.participants[0]!;
+    await expect(
+      service.addPayment(group.id, { fromId: "nope", toId: mara.id, amount: "10" }),
+    ).rejects.toBeInstanceOf(ServiceError);
+    await expect(
+      service.addPayment(group.id, { fromId: mara.id, toId: "nope", amount: "10" }),
+    ).rejects.toBeInstanceOf(ServiceError);
+  });
+
+  it("rejects paying yourself", async () => {
+    const { group } = await newGroup();
+    const mara = group.participants[0]!;
+    await expect(
+      service.addPayment(group.id, { fromId: mara.id, toId: mara.id, amount: "10" }),
+    ).rejects.toBeInstanceOf(ServiceError);
+  });
+
+  it("rejects an invalid amount the same way expenses do", async () => {
+    const { group } = await newGroup();
+    const [mara, jonas] = group.participants;
+    await expect(
+      service.addPayment(group.id, { fromId: jonas!.id, toId: mara!.id, amount: "0" }),
+    ).rejects.toBeInstanceOf(ServiceError);
+  });
+
+  it("counts as activity for the empty/active/settled status", async () => {
+    const { group } = await newGroup();
+    const [mara, jonas] = group.participants;
+    const created = await service.getGroup(group.id);
+    expect(created.status).toBe("empty");
+
+    const view = await service.addPayment(group.id, {
+      fromId: jonas!.id,
+      toId: mara!.id,
+      amount: "5",
+    });
+    expect(view.status).toBe("active");
   });
 });
 

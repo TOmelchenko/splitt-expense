@@ -1,6 +1,6 @@
 # Expense Splitter — User Stories & Acceptance Criteria
 
-Derived from `plan.md`. This document breaks the MVP spec into user stories with
+Derived from `docs/spec.md`. This document breaks the MVP spec into user stories with
 testable acceptance criteria, and restates non-goals explicitly so implementation
 doesn't scope-creep. Write this before any code.
 
@@ -73,8 +73,8 @@ participant list, so that I can view and add expenses as myself.
   approval step is required.
 - Multiple people can independently select the same name in different sessions
   (MVP does not enforce "one person per name" — no accounts exist to prevent it).
-- If the group is archived/closed, joining still allows viewing but not adding
-  expenses (see Epic 6).
+- There is no archived/closed state that blocks joining or adding expenses —
+  the group's "Settled" status (Epic 7) is a live, informational label only.
 
 ### US-2.2 — No accounts required
 As a participant, I want to use the app without registering, so that joining is
@@ -171,35 +171,77 @@ is owed money and who owes money.
 - Positive balance displayed with a `+` and described as "should receive."
 - Negative balance displayed with a `-` and described as "owes" / "paid less
   than their share."
-- Balances update immediately after every new expense — no manual refresh
-  needed to trigger recalculation (recalculation happens server-side on write;
-  client should reflect it right after save).
-- No settlement suggestions (e.g., "Bob pays Alice €10") are shown anywhere.
+- Balances update immediately after every new expense or payment — no manual
+  refresh needed to trigger recalculation (recalculation happens server-side
+  on write; client should reflect it right after save).
+- No *automatically suggested* settlement plan (e.g., "Bob pays Alice €10,
+  that's the minimal number of transactions") is computed or shown anywhere.
+  Manually recording that a repayment actually happened is a separate,
+  in-scope feature — see Epic 6, Payments.
 
 ### US-5.2 — See group total
 As a participant, I want to see the total amount spent by the group, so that I
 have an overview of shared spending.
 
 **Acceptance criteria**
-- Group page shows: total expenses (sum of all expense amounts), each
-  participant's current net balance, and the expense history — all on one
-  page/view.
+- Group page shows: total expenses (sum of all expense amounts — payments are
+  excluded from this figure, see Epic 6), each participant's current net
+  balance, and the expense history — all on one page/view.
 
 ---
 
-## Epic 6: Group Lifecycle
+## Epic 6: Payments (Settling Up)
 
-### US-6.1 — Active group usage
-As a participant, I want to view and add expenses while the group is active, so
-that ongoing shared costs are tracked.
+### US-6.1 — Record a payment between two participants
+As a participant, I want to record that one person paid another back
+directly, so that real-world repayments are reflected in balances without
+being mistaken for a new shared expense.
 
 **Acceptance criteria**
-- While active, any participant can view expenses/balances and add new
-  expenses.
-- No feature limits a participant from adding an expense based on being the
-  creator or not.
+- A payment has exactly three inputs: `from` (participant), `to`
+  (participant), and `amount`.
+- `from` and `to` must both be existing participants in the group, and must
+  be different from each other — paying yourself is rejected.
+- `amount` follows the same validation as an expense amount: EUR, > €0.00, at
+  most 2 decimal places (reuses the same parser/validator as expenses).
+- On save: `from`'s balance increases by the amount, `to`'s balance decreases
+  by the amount. This is the reverse of what an expense does to a payer, by
+  design — a payment is a transfer, not a shared cost.
+- A payment does **not** contribute to `totalCents` ("Total spent"). This is
+  the specific bug this feature fixes: previously the only way to log a
+  repayment was as an expense, which incorrectly split it across the whole
+  group and inflated the total.
+- A payment is immutable once recorded — no edit or delete endpoint, mirroring
+  expenses (US-4.2).
+- Payments are displayed in their own list, separate from the expense history
+  list (which keeps its existing Date/Description/Payer/Amount shape
+  unchanged — a payment has no "description" and isn't a shared cost, so it
+  doesn't belong in that list).
+- Payments count as "activity" for the `empty` / `settled` / `active` status
+  in US-7.2 (below): a group with only payments recorded (no expenses yet) is
+  not shown as "empty."
 
-### US-6.2 — Group shows as settled automatically
+**Worked example:** 3 people split a €30 dinner (each owes €10; whoever paid
+is +€20, the other two are −€10 each). One of the two who owe €10 pays the
+payer back €10 in cash and it's recorded as a payment: their balance moves
+from −€10 to €0.00, the payer's moves from +€20 to +€10. Total spent stays
+at €30.
+
+---
+
+## Epic 7: Group Lifecycle
+
+### US-7.1 — Active group usage
+As a participant, I want to view and add expenses and payments while the group
+is active, so that ongoing shared costs and repayments are tracked.
+
+**Acceptance criteria**
+- While active, any participant can view expenses/payments/balances and add
+  new expenses or payments.
+- No feature limits a participant from adding an expense or payment based on
+  being the creator or not.
+
+### US-7.2 — Group shows as settled automatically
 As a group member, I want the group to show when everyone is fully settled up,
 so that I know nothing is owed without anyone needing to take a manual "close"
 action.
@@ -212,13 +254,13 @@ anywhere in the app. Instead, "closed" becomes a computed, automatic status.
 - After every balance recalculation, if **every participant's net balance
   equals exactly €0.00**, the group is displayed with a "Settled" status.
 - This status is purely a live computed label, not a one-way action: if a new
-  expense later unbalances the group, the "Settled" label is automatically
-  cleared on the next recalculation.
-- Adding expenses is **never blocked** — there is no state that prevents
-  submitting a new expense, since there's no manual close step.
-- Edge case: a brand-new group with zero expenses has all balances at €0.00 by
-  definition. Recommend showing a neutral "No expenses yet" state instead of
-  "Settled" in that specific case (no expenses recorded), to avoid a
+  expense or payment later unbalances the group, the "Settled" label is
+  automatically cleared on the next recalculation.
+- Adding expenses or payments is **never blocked** — there is no state that
+  prevents submitting a new one, since there's no manual close step.
+- Edge case: a brand-new group with zero expenses and zero payments has all
+  balances at €0.00 by definition. Recommend showing a neutral "No expenses
+  yet" state instead of "Settled" in that specific case, to avoid a
   misleading "settled" label before any activity — otherwise every group would
   start "Settled."
 - No group-level "settled" flag needs to be persisted; it can be computed
@@ -233,14 +275,18 @@ anywhere in the app. Instead, "closed" becomes a computed, automatic status.
   hint, since the invite link is the only gate.
 - **No accounts:** No password fields, email fields, or OAuth anywhere in the
   app for participants or the creator.
-- **Data permanence:** No delete operations exist for groups, participants, or
-  expenses in the MVP (archiving a group is a status flag, not a delete).
+- **Data permanence:** No delete operations exist for groups, participants,
+  expenses, or payments in the MVP ("Settled" is a computed status, not a
+  delete or an archive record).
+- **Total spent is expenses-only:** `totalCents` sums expenses; payments never
+  contribute to it. This is the specific distinction the Payments feature
+  (Epic 6) exists to make explicit — see US-6.1.
 
 ---
 
 ## Non-Goals (Explicitly Out of Scope for MVP)
 
-Restated from `plan.md` §9 — do not build, even partially or "for later":
+Restated from `docs/spec.md` §10 — do not build, even partially or "for later":
 
 - User accounts / login / registration of any kind.
 - Email invitations or any email collection.
@@ -249,9 +295,13 @@ Restated from `plan.md` §9 — do not build, even partially or "for later":
   person).
 - Editing an existing expense.
 - Deleting an existing expense.
+- Editing or deleting an existing payment (payments are immutable, same as
+  expenses).
 - Leaving a group (removing yourself as a participant).
 - Expense categories/tags.
-- Settlement/payment instructions ("who pays whom how much").
+- Automatically suggested settlement plans (e.g. computing the minimal number
+  of transactions to settle up). Manually recording that a repayment actually
+  happened is in scope — see Epic 6, Payments.
 - Notifications or reminders (email, push, in-app).
 - Advanced filtering of expense history (by date range, payer, etc.).
 - Advanced sorting controls (user-selectable sort order).
@@ -260,7 +310,7 @@ Restated from `plan.md` §9 — do not build, even partially or "for later":
 - Support for more than 10 participants per group.
 - Removing/editing participant names after creation.
 - Manual archive/close action by the creator (replaced by the automatic
-  "Settled" status in US-6.2).
+  "Settled" status in US-7.2).
 - Creator-identity verification of any kind.
 
 ---
@@ -281,7 +331,18 @@ Resolved by product owner on 2026-09-12:
 3. **Group closing:** no manual archive action. Creator identity is never
    verified anywhere. Instead, the group automatically displays a "Settled"
    status whenever every participant's net balance is exactly €0.00,
-   recomputed live on every balance recalculation (see US-6.2).
+   recomputed live on every balance recalculation (see US-7.2).
 
-`plan.md` has been updated to match all three decisions, so it and this
-document are now consistent.
+`docs/spec.md` has been updated to match all three decisions, so it and this
+document are consistent.
+
+Resolved by product owner on 2026-09-12 (later same day, after testing the
+running app):
+
+4. **Recording repayments:** adding a Payments feature (Epic 6) after
+   discovering that logging a real-world repayment as an expense incorrectly
+   split it across the whole group and inflated `totalCents`. A payment is a
+   direct transfer between two participants — `from`/`to`/`amount` — that
+   moves balance but is excluded from the total. See US-6.1 for the full
+   contract. `docs/spec.md` §7 and `backend/openapi.yaml` were updated to
+   match.

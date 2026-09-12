@@ -19,11 +19,18 @@ info:
         integer cents, stable by participant list order (the participants
         earliest in the list absorb any leftover cents).
       - Expenses are immutable: there is no edit or delete endpoint, by design.
+      - A payment is a direct transfer between two participants (`from`/`to`/
+        `amount`). It is not split, is immutable like an expense, and never
+        contributes to `totalCents` — it only moves balance from `from` to
+        `to`. This is distinct from an expense, which is always split equally
+        among every member and always counts toward `totalCents`.
       - There are no accounts and no creator-identity checks anywhere:
-        whoever holds the group's URL can add participants and expenses.
+        whoever holds the group's URL can add participants, expenses, and
+        payments.
       - `status` is a computed, live value (not stored): "empty" with zero
-        expenses, "settled" when every participant's balance is exactly
-        €0.00, otherwise "active". There is no archive/close endpoint.
+        expenses and zero payments, "settled" when every participant's
+        balance is exactly €0.00, otherwise "active". There is no
+        archive/close endpoint.
 
 servers:
   - url: /api
@@ -31,7 +38,7 @@ servers:
 
 tags:
   - name: groups
-    description: Group creation, lookup, participants, and expenses.
+    description: Group creation, lookup, participants, expenses, and payments.
 
 paths:
   /groups:
@@ -136,6 +143,37 @@ paths:
         "404":
           $ref: "#/components/responses/NotFoundError"
 
+  /groups/{groupId}/payments:
+    post:
+      operationId: addPayment
+      tags: [groups]
+      summary: Record a payment between two participants
+      description: >-
+        Records that `from` paid `to` back directly. Unlike an expense, this
+        is not split across the group and never contributes to `totalCents`
+        — it only moves balance from `from` to `to`. Use this to log a
+        real-world repayment (e.g. a bank transfer or cash handover) without
+        it being mistaken for a new shared expense.
+      parameters:
+        - $ref: "#/components/parameters/GroupId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddPaymentInput"
+      responses:
+        "200":
+          description: Updated group view, including the new payment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupView"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+
 components:
   parameters:
     GroupId:
@@ -207,9 +245,33 @@ components:
           format: int64
           description: Server-assigned creation timestamp, epoch milliseconds.
 
+    Payment:
+      type: object
+      required: [id, fromId, toId, amountCents, createdAt]
+      properties:
+        id:
+          type: string
+        fromId:
+          type: string
+          description: Id of the participant who paid (the debtor settling up).
+        toId:
+          type: string
+          description: Id of the participant who received the payment.
+        amountCents:
+          type: integer
+          format: int64
+          minimum: 1
+          description: >-
+            Amount in EUR cents. Always > 0. Not split — moves balance
+            directly from fromId to toId and is excluded from totalCents.
+        createdAt:
+          type: integer
+          format: int64
+          description: Server-assigned creation timestamp, epoch milliseconds.
+
     Group:
       type: object
-      required: [id, name, creatorName, participants, expenses]
+      required: [id, name, creatorName, participants, expenses, payments]
       properties:
         id:
           type: string
@@ -232,6 +294,14 @@ components:
           items:
             $ref: "#/components/schemas/Expense"
           description: Full, immutable expense history in the group.
+        payments:
+          type: array
+          items:
+            $ref: "#/components/schemas/Payment"
+          description: >-
+            Full, immutable list of direct repayments between participants.
+            Kept separate from `expenses` — a payment is a transfer, not a
+            shared cost, and never contributes to totalCents.
 
     Balance:
       type: object
@@ -252,8 +322,9 @@ components:
       type: string
       enum: [empty, settled, active]
       description: >-
-        "empty" = no expenses yet. "settled" = every participant's balance is
-        exactly €0.00. "active" = otherwise. Computed live, never stored.
+        "empty" = no expenses and no payments yet. "settled" = every
+        participant's balance is exactly €0.00 (considering both expenses and
+        payments). "active" = otherwise. Computed live, never stored.
 
     GroupView:
       type: object
@@ -264,7 +335,9 @@ components:
         totalCents:
           type: integer
           format: int64
-          description: Sum of all expense amounts in the group, in EUR cents.
+          description: >-
+            Sum of all expense amounts in the group, in EUR cents. Payments
+            are intentionally excluded from this figure — see Payment.
         balances:
           type: array
           items:
@@ -327,3 +400,27 @@ components:
         payerId:
           type: string
           description: Must be the id of an existing participant in this group.
+
+    AddPaymentInput:
+      type: object
+      required: [fromId, toId, amount]
+      properties:
+        fromId:
+          type: string
+          description: >-
+            Id of the participant paying. Must be an existing participant and
+            different from toId.
+        toId:
+          type: string
+          description: >-
+            Id of the participant receiving the payment. Must be an existing
+            participant and different from fromId.
+        amount:
+          type: string
+          pattern: '^\d+([.,]\d{1,2})?$'
+          example: "10.00"
+          description: >-
+            Raw decimal amount in EUR as entered by the user (dot or comma
+            decimal separator accepted). Same parsing/validation as an
+            expense's amount: rejects more than 2 decimal places and rejects
+            amounts <= €0.00.

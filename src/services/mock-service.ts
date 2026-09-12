@@ -44,7 +44,7 @@ export function computeGroupView(group: Group): GroupView {
   for (const expense of group.expenses) {
     const shares = splitEqually(expense.amountCents, group.participants.length);
     group.participants.forEach((p, i) => {
-      totals.set(p.id, (totals.get(p.id) ?? 0) - shares[i]);
+      totals.set(p.id, (totals.get(p.id) ?? 0) - (shares[i] ?? 0));
     });
     totals.set(expense.payerId, (totals.get(expense.payerId) ?? 0) + expense.amountCents);
   }

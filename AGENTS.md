@@ -27,12 +27,15 @@ file.
   implementing that same interface with `fetch` calls and changing one export
   in `frontend/src/services/index.ts` — no UI/route code should need to
   change.
-- `backend/` — Python API (not yet implemented). Its contract is defined
-  contract-first in [`openapi.yaml`](openapi.yaml) at the repo root, which
-  mirrors `ExpenseSplitterService` field-for-field. Implement the backend to
-  match that file, not the other way around, unless the contract itself needs
-  to change (then update `openapi.yaml`, `types.ts`, and `mock-service.ts`
-  together so the two implementations never drift apart).
+- `backend/` — FastAPI implementation of [`openapi.yaml`](openapi.yaml) at the
+  repo root, which mirrors `ExpenseSplitterService` field-for-field. See
+  [`backend/README.md`](backend/README.md) for how to run it and its module
+  layout (`models` / `store` / `money` / `auth` / `routers`). It's an
+  in-memory store, seeded with a demo group on startup — there is no
+  database. Match `openapi.yaml`, not the other way around, unless the
+  contract itself needs to change (then update `openapi.yaml`, `types.ts`,
+  `mock-service.ts`, and the FastAPI implementation together so none of them
+  drift apart).
 - `docs/` — product spec, user stories, and decisions. Update these first
   when a requirement changes, before touching code.
 
@@ -67,10 +70,17 @@ see `frontend/src/services/money.ts` for the reference implementation:
   confuse it with an Expense: recording a repayment as an expense was the
   original bug this feature exists to fix (it split the repayment across the
   whole group and inflated the total).
-- **No accounts, no creator-identity verification, anywhere.** Whoever holds
-  a group's URL can add participants, expenses, and payments. Don't add
-  auth/permission checks "just in case" — this was an explicit, deliberate
-  decision.
+- **No accounts, no creator-identity verification, anywhere in the public
+  app.** Whoever holds a group's URL can add participants, expenses, and
+  payments. Don't add auth/permission checks to `app/routers/groups.py` "just
+  in case" — this was an explicit, deliberate decision, and `openapi.yaml`
+  sets `security: []` accordingly. The **one exception** is
+  `app/routers/admin.py` (`POST /api/admin/login` + `POST /api/admin/reset`,
+  hashed password + bearer token via `app/auth.py`) — a deliberately separate,
+  out-of-spec demo of auth mechanics that only guards reseeding the in-memory
+  store. Don't extend that auth model onto the real group/expense/payment
+  endpoints, and don't remove it thinking it contradicts the no-accounts rule
+  — it's scoped to stay orthogonal to it on purpose.
 - There is no manual archive/close action. `status` (`empty` / `settled` /
   `active`) is a **computed, live value** based on current balances (from
   both expenses and payments), not something stored or toggled — see
@@ -83,7 +93,11 @@ see `frontend/src/services/money.ts` for the reference implementation:
 - Frontend tests: `cd frontend && npm run test` (Vitest); the money/rounding
   logic in `money.test.ts` and `mock-service.test.ts` encode the business
   rules above as executable specs — keep them passing.
+- Backend tests: `cd backend && uv run pytest`; `test_money.py` /
+  `test_groups.py` / `test_payments.py` mirror the same specs as the frontend
+  tests above, plus `test_admin_auth.py` for the admin-only auth mechanics.
 - When behavior changes, keep `docs/spec.md`, `docs/user-stories.md`,
-  `openapi.yaml`, and `frontend/src/services/types.ts` consistent with each
-  other. They currently describe the same system four different ways; a
-  change to one without the others is a regression.
+  `openapi.yaml`, `frontend/src/services/types.ts`, and the FastAPI
+  implementation in `backend/app/` consistent with each other. They currently
+  describe the same system five different ways; a change to one without the
+  others is a regression.

@@ -1,10 +1,11 @@
 /**
  * Domain types and the single service contract the UI talks to.
  *
- * The app never calls a backend directly: every read/write goes through
- * `ExpenseSplitterService`. Today it is fulfilled by an in-browser mock
- * (`mock-service.ts`); swapping in an HTTP client that calls the Python API
- * means implementing this same interface and changing one line in index.ts.
+ * Every read/write in the UI goes through `ExpenseSplitterService`, fulfilled
+ * by `http-service.ts` calling the real FastAPI backend (backend/app/) — see
+ * index.ts. `mock-service.ts` also implements this same interface and is
+ * still exercised directly by its own tests, but nothing in the app wires to
+ * it anymore.
  */
 
 export type Participant = { id: string; name: string };

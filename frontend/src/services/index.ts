@@ -1,25 +1,15 @@
 /**
  * The one place the app gets its backend from.
  *
- * Every component imports `expenseService` from here. To move to the real
- * Python API, implement `ExpenseSplitterService` with fetch calls and export
- * that instead — no UI code changes.
+ * Every component imports `expenseService` from here. This now talks to the
+ * real FastAPI backend (backend/app/) over HTTP — see http-service.ts. The
+ * in-browser mock (mock-service.ts) still exists and is exercised directly
+ * by its own tests, but nothing in the app wires to it anymore.
  */
-import { createMemoryStore, createMockService, type KeyValueStore } from "./mock-service";
+import { createHttpService } from "./http-service";
 import type { ExpenseSplitterService } from "./types";
 
-const browserStore: KeyValueStore =
-  typeof localStorage !== "undefined"
-    ? {
-        getItem: (k) => localStorage.getItem(k),
-        setItem: (k, v) => localStorage.setItem(k, v),
-      }
-    : createMemoryStore();
-
-export const expenseService: ExpenseSplitterService = createMockService({
-  store: browserStore,
-  latencyMs: 280, // pretend network round-trip so loading states are real
-});
+export const expenseService: ExpenseSplitterService = createHttpService();
 
 /** Which participant this browser is acting as, per group (no accounts exist). */
 export const session = {

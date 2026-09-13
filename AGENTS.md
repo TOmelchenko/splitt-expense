@@ -21,12 +21,14 @@ file.
 
 - `frontend/` — Vite + React + TanStack Start app (Lovable-managed). Talks to
   the backend only through the single service contract in
-  `frontend/src/services/types.ts` (`ExpenseSplitterService`). Today that
-  interface is fulfilled by an in-browser mock
-  (`frontend/src/services/mock-service.ts`); swapping to the real API means
-  implementing that same interface with `fetch` calls and changing one export
-  in `frontend/src/services/index.ts` — no UI/route code should need to
-  change.
+  `frontend/src/services/types.ts` (`ExpenseSplitterService`), fulfilled by
+  `frontend/src/services/http-service.ts` calling the real FastAPI backend
+  (base URL: `VITE_API_BASE_URL`, default `http://localhost:8001/api` — set
+  in `docker-compose.yml`). `frontend/src/services/mock-service.ts` still
+  implements the same interface and is still exercised directly by its own
+  tests, but nothing in the app wires to it anymore — if you need to change
+  that, it's one export in `frontend/src/services/index.ts`, no UI/route code
+  should need to change.
 - `backend/` — FastAPI implementation of [`openapi.yaml`](openapi.yaml) at the
   repo root, which mirrors `ExpenseSplitterService` field-for-field. See
   [`backend/README.md`](backend/README.md) for how to run it and its module
@@ -92,7 +94,9 @@ see `frontend/src/services/money.ts` for the reference implementation:
   Lovable — see the note above) rather than batching unrelated changes.
 - Frontend tests: `cd frontend && npm run test` (Vitest); the money/rounding
   logic in `money.test.ts` and `mock-service.test.ts` encode the business
-  rules above as executable specs — keep them passing.
+  rules above as executable specs — keep them passing. `http-service.test.ts`
+  covers the real HTTP client (request shaping, error-body → ServiceError
+  mapping) against a mocked `fetch`, not a live backend.
 - Backend tests: `cd backend && uv run pytest`; `test_money.py` /
   `test_groups.py` / `test_payments.py` mirror the same specs as the frontend
   tests above, plus `test_admin_auth.py` for the admin-only auth mechanics.

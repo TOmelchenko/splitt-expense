@@ -9,6 +9,7 @@ the only part of this API that requires authentication.
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app import store
@@ -30,6 +31,21 @@ app = FastAPI(
         "docs/user-stories.md for the product spec this enforces."
     ),
     lifespan=_lifespan,
+)
+
+# The frontend (Vite dev server, e.g. http://localhost:8080) is a different
+# origin from this API (e.g. http://localhost:8001), so the browser needs
+# CORS to allow it. No cookies/credentials are used anywhere in this app, so
+# allow_credentials stays False — origins are still enumerated explicitly
+# rather than "*" for clarity about what's expected to call this API.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+    ],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 

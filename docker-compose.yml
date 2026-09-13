@@ -9,6 +9,10 @@ services:
       - frontend_node_modules:/app/node_modules
     environment:
       - CHOKIDAR_USEPOLLING=true
+      # The browser (not this container) makes the actual HTTP calls, so
+      # localhost here means the host machine running Docker — where the
+      # backend's `uv run uvicorn` dev server listens. See backend/README.md.
+      - VITE_API_BASE_URL=http://localhost:8001/api
 
 volumes:
   frontend_node_modules:

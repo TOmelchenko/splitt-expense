@@ -37,3 +37,7 @@ __pycache__/
 .venv/
 .pytest_cache/
 *.egg-info/
+
+# Makefile-managed local dev processes (`make up` / `make down`)
+/.backend.pid
+/backend.log

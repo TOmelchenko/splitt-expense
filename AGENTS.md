@@ -36,6 +36,19 @@ file.
 - `docs/` — product spec, user stories, and decisions. Update these first
   when a requirement changes, before touching code.
 
+## Backend dependency management
+
+Use [`uv`](https://docs.astral.sh/uv/) for all Python dependency management in
+`backend/` — not pip/poetry/venv directly.
+
+- `uv sync` — install/update dependencies to match the lockfile. Run this
+  after pulling changes that touch `pyproject.toml` / `uv.lock`.
+- `uv add <package-name>` — add a new dependency (writes to `pyproject.toml`
+  and `uv.lock`). Use `uv add --dev <package-name>` for dev-only tools
+  (test runners, linters, etc.).
+- `uv run python <file.py>` — run a script inside the project's managed
+  environment without activating a virtualenv manually.
+
 ## Key business rules agents must not violate
 
 These come from `docs/spec.md` / `docs/user-stories.md` and are load-bearing —

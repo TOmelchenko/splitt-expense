@@ -1,23 +1,25 @@
-"""In-memory group store: creation, lookup, mutation, and view computation.
+"""Group creation, lookup, mutation, and view computation — backed by the
+database configured via app/db.py (DATABASE_URL).
 
-Direct port of frontend/src/services/mock-service.ts (createMockService /
-computeGroupView) — same validation messages, same rounding rule (see
-app/money.py), same status logic — so the two "mock backends" agree exactly.
-There is no persistence: all state lives in the `_groups` dict for the life
-of the process, and `reset()` (used by the admin router and by seeding on
-startup) is the only way to wipe or repopulate it.
+Business rules (validation messages, rounding, status logic) are unchanged
+from the original in-memory version and from
+frontend/src/services/mock-service.ts — only where the data lives changed.
+Every function here takes a `Session` explicitly (injected by routers via
+`Depends(get_db)`) rather than reaching for a global connection, so nothing
+in this module assumes a particular database is configured.
 """
 
 import secrets
 import time
 
+from sqlalchemy.orm import Session
+
+from app.db_models import ExpenseORM, GroupORM, ParticipantORM, PaymentORM
 from app.errors import NotFoundError, ValidationError
 from app.money import parse_amount_to_cents, split_equally
 from app.models import Balance, CreateGroupInput, Expense, Group, GroupView, Participant, Payment
 
 MAX_PARTICIPANTS = 10
-
-_groups: dict[str, Group] = {}
 
 
 def _new_id(prefix: str) -> str:
@@ -28,24 +30,24 @@ def _now_millis() -> int:
     return int(time.time() * 1000)
 
 
-def _assert_name_available(group: Group, raw_name: str) -> None:
+def _assert_name_available(participants: list[ParticipantORM], raw_name: str) -> None:
     name = raw_name.strip()
     if not name:
         raise ValidationError("A participant name can't be empty.")
-    if any(p.name.lower() == name.lower() for p in group.participants):
+    if any(p.name.lower() == name.lower() for p in participants):
         raise ValidationError(f'"{name}" is already in this group — names must be unique.')
-    if len(group.participants) >= MAX_PARTICIPANTS:
+    if len(participants) >= MAX_PARTICIPANTS:
         raise ValidationError(f"A group can hold at most {MAX_PARTICIPANTS} people.")
 
 
-def require_group(group_id: str) -> Group:
-    group = _groups.get(group_id)
+def require_group(db: Session, group_id: str) -> GroupORM:
+    group = db.get(GroupORM, group_id)
     if group is None:
         raise NotFoundError("This group doesn't exist. Check the invite link.")
     return group
 
 
-def compute_group_view(group: Group) -> GroupView:
+def compute_group_view(group: GroupORM) -> GroupView:
     totals = {p.id: 0 for p in group.participants}
 
     for expense in group.expenses:
@@ -73,50 +75,80 @@ def compute_group_view(group: Group) -> GroupView:
         status = "active"
 
     return GroupView(
-        group=group,
+        group=Group(
+            id=group.id,
+            name=group.name,
+            creator_name=group.creator_name,
+            participants=[Participant(id=p.id, name=p.name) for p in group.participants],
+            expenses=[
+                Expense(
+                    id=e.id,
+                    date=e.date,
+                    description=e.description,
+                    amount_cents=e.amount_cents,
+                    payer_id=e.payer_id,
+                    created_at=e.created_at,
+                )
+                for e in group.expenses
+            ],
+            payments=[
+                Payment(
+                    id=p.id,
+                    from_id=p.from_id,
+                    to_id=p.to_id,
+                    amount_cents=p.amount_cents,
+                    created_at=p.created_at,
+                )
+                for p in group.payments
+            ],
+        ),
         total_cents=sum(e.amount_cents for e in group.expenses),
         balances=balances,
         status=status,
     )
 
 
-def create_group(input: CreateGroupInput) -> GroupView:
+def create_group(db: Session, input: CreateGroupInput) -> GroupView:
     creator_name = input.creator_name.strip()
     if not creator_name:
         raise ValidationError("Please enter your name to create the group.")
 
-    group = Group(
+    group = GroupORM(
         id=_new_id("g"),
         name=(input.group_name or "").strip() or None,
         creator_name=creator_name,
-        participants=[Participant(id=_new_id("p"), name=creator_name)],
-        expenses=[],
-        payments=[],
     )
+    group.participants.append(ParticipantORM(id=_new_id("p"), name=creator_name, position=0))
 
     for raw_name in input.participant_names:
         if not raw_name.strip():
             continue
-        _assert_name_available(group, raw_name)
-        group.participants.append(Participant(id=_new_id("p"), name=raw_name.strip()))
+        _assert_name_available(group.participants, raw_name)
+        group.participants.append(
+            ParticipantORM(id=_new_id("p"), name=raw_name.strip(), position=len(group.participants))
+        )
 
-    _groups[group.id] = group
+    db.add(group)
+    db.commit()
     return compute_group_view(group)
 
 
-def get_group(group_id: str) -> GroupView:
-    return compute_group_view(require_group(group_id))
+def get_group(db: Session, group_id: str) -> GroupView:
+    return compute_group_view(require_group(db, group_id))
 
 
-def add_participant(group_id: str, name: str) -> GroupView:
-    group = require_group(group_id)
-    _assert_name_available(group, name)
-    group.participants.append(Participant(id=_new_id("p"), name=name.strip()))
+def add_participant(db: Session, group_id: str, name: str) -> GroupView:
+    group = require_group(db, group_id)
+    _assert_name_available(group.participants, name)
+    group.participants.append(
+        ParticipantORM(id=_new_id("p"), name=name.strip(), position=len(group.participants))
+    )
+    db.commit()
     return compute_group_view(group)
 
 
-def add_expense(group_id: str, date: str, description: str, amount: str, payer_id: str) -> GroupView:
-    group = require_group(group_id)
+def add_expense(db: Session, group_id: str, date: str, description: str, amount: str, payer_id: str) -> GroupView:
+    group = require_group(db, group_id)
 
     clean_description = description.strip()
     if not clean_description:
@@ -128,7 +160,7 @@ def add_expense(group_id: str, date: str, description: str, amount: str, payer_i
     amount_cents = parse_amount_to_cents(amount)
 
     group.expenses.append(
-        Expense(
+        ExpenseORM(
             id=_new_id("e"),
             date=date,
             description=clean_description,
@@ -137,11 +169,12 @@ def add_expense(group_id: str, date: str, description: str, amount: str, payer_i
             created_at=_now_millis(),
         )
     )
+    db.commit()
     return compute_group_view(group)
 
 
-def add_payment(group_id: str, from_id: str, to_id: str, amount: str) -> GroupView:
-    group = require_group(group_id)
+def add_payment(db: Session, group_id: str, from_id: str, to_id: str, amount: str) -> GroupView:
+    group = require_group(db, group_id)
 
     if not any(p.id == from_id for p in group.participants):
         raise ValidationError("Please choose who is paying.")
@@ -152,7 +185,7 @@ def add_payment(group_id: str, from_id: str, to_id: str, amount: str) -> GroupVi
     amount_cents = parse_amount_to_cents(amount)
 
     group.payments.append(
-        Payment(
+        PaymentORM(
             id=_new_id("pay"),
             from_id=from_id,
             to_id=to_id,
@@ -160,49 +193,62 @@ def add_payment(group_id: str, from_id: str, to_id: str, amount: str) -> GroupVi
             created_at=_now_millis(),
         )
     )
+    db.commit()
     return compute_group_view(group)
 
 
-def seed_demo_data() -> None:
-    """Seeds one demo group so the frontend/docs have something to show.
+def seed_demo_data(db: Session) -> None:
+    """Seeds one demo group, but only if it doesn't already exist.
 
-    Reproduces the worked example from docs/spec.md §6 exactly: a €60 expense
-    split 3 ways (Alice pays, so +€40 before payments), then Bob pays Alice
-    back €10, landing on Alice +€30 / Bob -€10 / Charlie -€20.
+    Unlike the old in-memory store, this database persists across restarts,
+    so startup must not wipe real data every time — it only guarantees
+    something to look at on a brand-new, empty database. Reproduces the
+    worked example from docs/spec.md §6 exactly: a €60 expense split 3 ways
+    (Alice pays, so +€40 before payments), then Bob pays Alice back €10,
+    landing on Alice +€30 / Bob -€10 / Charlie -€20.
     """
-    group = Group(
-        id="g_demo",
-        name="Weekend in Lisbon",
-        creator_name="Alice",
-        participants=[
-            Participant(id="p_alice", name="Alice"),
-            Participant(id="p_bob", name="Bob"),
-            Participant(id="p_charlie", name="Charlie"),
-        ],
-        expenses=[
-            Expense(
-                id="e_seed1",
-                date="2026-09-01",
-                description="Groceries",
-                amount_cents=6000,
-                payer_id="p_alice",
-                created_at=_now_millis(),
-            )
-        ],
-        payments=[
-            Payment(
-                id="pay_seed1",
-                from_id="p_bob",
-                to_id="p_alice",
-                amount_cents=1000,
-                created_at=_now_millis(),
-            )
-        ],
-    )
-    _groups.clear()
-    _groups[group.id] = group
+    if db.get(GroupORM, "g_demo") is not None:
+        return
+
+    now = _now_millis()
+    group = GroupORM(id="g_demo", name="Weekend in Lisbon", creator_name="Alice")
+    group.participants = [
+        ParticipantORM(id="p_alice", name="Alice", position=0),
+        ParticipantORM(id="p_bob", name="Bob", position=1),
+        ParticipantORM(id="p_charlie", name="Charlie", position=2),
+    ]
+    db.add(group)
+    # Flush so the participant rows exist before the expense/payment rows
+    # that reference them by id — nothing here declares a relationship()
+    # between ExpenseORM/PaymentORM and ParticipantORM (only their group_id
+    # FKs matter for lookups), so the unit-of-work can't infer that ordering
+    # on its own within a single flush.
+    db.flush()
+    group.expenses = [
+        ExpenseORM(
+            id="e_seed1",
+            date="2026-09-01",
+            description="Groceries",
+            amount_cents=6000,
+            payer_id="p_alice",
+            created_at=now,
+        )
+    ]
+    group.payments = [
+        PaymentORM(id="pay_seed1", from_id="p_bob", to_id="p_alice", amount_cents=1000, created_at=now)
+    ]
+    db.commit()
 
 
-def reset() -> None:
-    """Wipes all state and reseeds the demo group. Used by POST /admin/reset."""
-    seed_demo_data()
+def reset(db: Session) -> None:
+    """Wipes every group (and its participants/expenses/payments) and
+    reseeds just the demo group. Used only by POST /admin/reset — a
+    deliberate, authenticated, destructive action, distinct from
+    seed_demo_data's "only if missing" behavior on ordinary startup.
+    """
+    db.query(PaymentORM).delete()
+    db.query(ExpenseORM).delete()
+    db.query(ParticipantORM).delete()
+    db.query(GroupORM).delete()
+    db.commit()
+    seed_demo_data(db)

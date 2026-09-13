@@ -3,12 +3,15 @@
 This is *not* part of the public contract in /openapi.yaml: every endpoint
 described there is deliberately unauthenticated, per docs/spec.md's
 no-accounts design (see AGENTS.md). It exists only to protect
-POST /api/admin/reset (reseeding the in-memory demo data) behind a real
-login, as a self-contained demonstration of password hashing + bearer-token
-auth that doesn't touch the public group/expense/payment endpoints.
+POST /api/admin/reset (wiping and reseeding the database — see app/store.py)
+behind a real login, as a self-contained demonstration of password hashing +
+bearer-token auth that doesn't touch the public group/expense/payment
+endpoints.
 
 Both the admin user table and the issued-token table are in-memory and reset
-whenever the process restarts, same as the group store.
+whenever the process restarts — deliberately unlike the group data, which
+now persists in a real database (see app/db.py). This login is a mechanics
+demo, not something worth persisting.
 """
 
 import secrets

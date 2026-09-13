@@ -1,8 +1,8 @@
 """Admin-only endpoints — not part of the public contract in /openapi.yaml.
 
 POST /api/admin/login  — hashed-password login, returns a bearer token.
-POST /api/admin/reset  — requires that bearer token; reseeds the in-memory
-                          demo data (see app/store.py::seed_demo_data).
+POST /api/admin/reset  — requires that bearer token; wipes the database and
+                          reseeds the demo data (see app/store.py::reset).
 
 Everything under app.routers.groups stays fully public; this router is kept
 deliberately separate so the two auth models (none vs. bearer-token) never
@@ -10,8 +10,10 @@ mix. See app/auth.py for the hashing/token mechanics.
 """
 
 from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
 
 from app import auth, store
+from app.db import get_db
 from app.models import AdminLoginInput, AdminToken
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -24,6 +26,6 @@ def login(input: AdminLoginInput) -> AdminToken:
 
 
 @router.post("/reset")
-def reset(username: str = Depends(auth.require_admin)) -> dict[str, str]:
-    store.reset()
-    return {"message": f"Store reseeded by {username}."}
+def reset(username: str = Depends(auth.require_admin), db: Session = Depends(get_db)) -> dict[str, str]:
+    store.reset(db)
+    return {"message": f"Database reseeded by {username}."}

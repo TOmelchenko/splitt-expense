@@ -13,13 +13,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app import store
+from app.db import SessionLocal, init_db
 from app.errors import AuthError, NotFoundError, ValidationError
 from app.routers import admin, groups
 
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    store.seed_demo_data()
+    init_db()
+    db = SessionLocal()
+    try:
+        store.seed_demo_data(db)
+    finally:
+        db.close()
     yield
 
 

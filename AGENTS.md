@@ -32,11 +32,13 @@ file.
 - `backend/` — FastAPI implementation of [`openapi.yaml`](openapi.yaml) at the
   repo root, which mirrors `ExpenseSplitterService` field-for-field. See
   [`backend/README.md`](backend/README.md) for how to run it and its module
-  layout (`models` / `store` / `money` / `auth` / `routers`). It's an
-  in-memory store, seeded with a demo group on startup — there is no
-  database. Match `openapi.yaml`, not the other way around, unless the
-  contract itself needs to change (then update `openapi.yaml`, `types.ts`,
-  `mock-service.ts`, and the FastAPI implementation together so none of them
+  layout (`models` / `db` / `db_models` / `store` / `money` / `auth` /
+  `routers`). Persists via SQLAlchemy to whatever `DATABASE_URL` points at
+  (defaults to a local SQLite file) — seeded with a demo group only if that
+  group doesn't already exist, so real data survives restarts. Match
+  `openapi.yaml`, not the other way around, unless the contract itself needs
+  to change (then update `openapi.yaml`, `types.ts`, `mock-service.ts`, and
+  the FastAPI implementation together so none of them
   drift apart).
 - `docs/` — product spec, user stories, and decisions. Update these first
   when a requirement changes, before touching code.
@@ -79,8 +81,8 @@ see `frontend/src/services/money.ts` for the reference implementation:
   sets `security: []` accordingly. The **one exception** is
   `app/routers/admin.py` (`POST /api/admin/login` + `POST /api/admin/reset`,
   hashed password + bearer token via `app/auth.py`) — a deliberately separate,
-  out-of-spec demo of auth mechanics that only guards reseeding the in-memory
-  store. Don't extend that auth model onto the real group/expense/payment
+  out-of-spec demo of auth mechanics that only guards wiping and reseeding the
+  database. Don't extend that auth model onto the real group/expense/payment
   endpoints, and don't remove it thinking it contradicts the no-accounts rule
   — it's scoped to stay orthogonal to it on purpose.
 - There is no manual archive/close action. `status` (`empty` / `settled` /

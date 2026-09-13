@@ -28,7 +28,7 @@ file.
   in `frontend/src/services/index.ts` — no UI/route code should need to
   change.
 - `backend/` — Python API (not yet implemented). Its contract is defined
-  contract-first in [`backend/openapi.yaml`](backend/openapi.yaml), which
+  contract-first in [`openapi.yaml`](openapi.yaml) at the repo root, which
   mirrors `ExpenseSplitterService` field-for-field. Implement the backend to
   match that file, not the other way around, unless the contract itself needs
   to change (then update `openapi.yaml`, `types.ts`, and `mock-service.ts`
@@ -84,6 +84,6 @@ see `frontend/src/services/money.ts` for the reference implementation:
   logic in `money.test.ts` and `mock-service.test.ts` encode the business
   rules above as executable specs — keep them passing.
 - When behavior changes, keep `docs/spec.md`, `docs/user-stories.md`,
-  `backend/openapi.yaml`, and `frontend/src/services/types.ts` consistent
-  with each other. They currently describe the same system four different
-  ways; a change to one without the others is a regression.
+  `openapi.yaml`, and `frontend/src/services/types.ts` consistent with each
+  other. They currently describe the same system four different ways; a
+  change to one without the others is a regression.

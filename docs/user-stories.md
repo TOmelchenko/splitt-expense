@@ -344,5 +344,5 @@ running app):
    split it across the whole group and inflated `totalCents`. A payment is a
    direct transfer between two participants — `from`/`to`/`amount` — that
    moves balance but is excluded from the total. See US-6.1 for the full
-   contract. `docs/spec.md` §7 and `backend/openapi.yaml` were updated to
+   contract. `docs/spec.md` §7 and `openapi.yaml` (repo root) were updated to
    match.

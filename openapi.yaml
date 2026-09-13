@@ -32,9 +32,19 @@ info:
         balance is exactly €0.00, otherwise "active". There is no
         archive/close endpoint.
 
+    Authentication: **none of these endpoints require authentication.** There
+    are no user accounts, no login, and no API keys/tokens anywhere in this
+    API — this is a deliberate product decision (see docs/spec.md §3 and §10),
+    not an oversight. A group is accessible to anyone holding its `groupId`
+    (as shared via the invite link); possession of that id is the only access
+    control. The top-level `security: []` below makes this explicit for every
+    operation in this document.
+
 servers:
   - url: /api
     description: Same-origin, behind the frontend's dev server / reverse proxy.
+
+security: []
 
 tags:
   - name: groups

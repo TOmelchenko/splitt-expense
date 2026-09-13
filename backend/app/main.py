@@ -7,10 +7,12 @@ the only part of this API that requires authentication.
 """
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app import store
 from app.db import SessionLocal, init_db
@@ -76,3 +78,25 @@ def _auth_error_handler(request: Request, exc: AuthError) -> JSONResponse:
 
 app.include_router(groups.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
+
+# The Docker image (see /Dockerfile) copies the frontend's static build here
+# so this API can serve it directly. Absent in local dev (`uv run uvicorn`),
+# where the frontend runs separately via its own Vite dev server instead.
+STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+
+if STATIC_DIR.is_dir():
+    app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    def _favicon() -> FileResponse:
+        return FileResponse(STATIC_DIR / "favicon.ico")
+
+    # Client-side routing (TanStack Router) owns every other path: this app
+    # was built in TanStack Start's SPA-shell mode (see frontend/vite.config.ts),
+    # so `_shell.html` is a static, route-agnostic HTML page that just loads
+    # the client JS bundle, which then renders whatever route matches the URL.
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def _spa_fallback(full_path: str) -> FileResponse:
+        if full_path.startswith("api/"):
+            raise NotFoundError(f"No route matches /{full_path}.")
+        return FileResponse(STATIC_DIR / "_shell.html")

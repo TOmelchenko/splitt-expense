@@ -1,0 +1,11 @@
+.git
+frontend/node_modules
+frontend/dist
+frontend/dist-ssr
+frontend/.output
+frontend/.vinxi
+frontend/.nitro
+backend/.venv
+backend/.pytest_cache
+backend/__pycache__
+backend/expense_splitter.db
